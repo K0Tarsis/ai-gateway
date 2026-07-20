@@ -1,0 +1,25 @@
+server:
+  host: 127.0.0.1
+  port: 8080
+
+security:
+  api_keys:
+    - gw_your_key_here
+  allowed_ips:
+    - 127.0.0.1
+
+providers:
+  openai:
+    enabled: true
+    api_key: ${OPENAI_API_KEY}   # set this env var before running
+    # base_url defaults to https://api.openai.com/v1
+  anthropic:
+    enabled: false
+    api_key: ${ANTHROPIC_API_KEY}
+  ollama:
+    enabled: false
+    base_url: http://localhost:11434
+
+routing:
+  fallback:
+    - openai
