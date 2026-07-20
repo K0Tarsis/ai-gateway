@@ -2,24 +2,126 @@ server:
   host: 127.0.0.1
   port: 8080
 
-security:
-  api_keys:
-    - gw_your_key_here
-  allowed_ips:
-    - 127.0.0.1
-
 providers:
   openai:
     enabled: true
     api_key: ${OPENAI_API_KEY}   # set this env var before running
     # base_url defaults to https://api.openai.com/v1
+    # timeout_secs defaults to 30 — bounds each individual attempt at this
+    # provider (a hung connection can't block a request forever).
   anthropic:
     enabled: false
     api_key: ${ANTHROPIC_API_KEY}
+    timeout_secs: 30
   ollama:
     enabled: false
     base_url: http://localhost:11434
+  azure:
+    enabled: false
+    api_key: ${AZURE_OPENAI_API_KEY}
+    base_url: https://your-resource.openai.azure.com   # your Azure resource endpoint
+    # api_version defaults to 2024-06-01
+    # timeout_secs defaults to 30
 
-routing:
-  fallback:
-    - openai
+# Same-provider retry (connection errors, 429, 5xx) before a candidate counts
+# as failed for cross-provider failover purposes. Both fields optional,
+# shown here at their defaults.
+retry:
+  max_attempts: 2
+
+# Circuit breaker: after `failure_threshold` consecutive failures a provider
+# is deprioritized (tried last, not dropped) for `cooldown_secs`. Both
+# optional, shown here at their defaults. `GET /v1/models` reports current
+# status per provider/route via `"healthy": true/false`.
+health:
+  failure_threshold: 3
+  cooldown_secs: 30
+
+# SQLite database backing persisted request history (one row per chat
+# completion attempt). Optional, shown here at its default.
+database:
+  path: gateway.db
+
+# Per-model $/1M-token pricing, used to estimate cost on each successful
+# request (persisted to request_log, aggregated by GET /v1/usage, and
+# emitted as gateway_cost_usd_total on /metrics). Optional — a model with
+# no entry here just isn't cost-tracked, everything else still works.
+# Key on the exact model string the provider *returns* (visible in a
+# successful response's "model" field), not necessarily what a client
+# requested — OpenAI resolves aliases like "gpt-4o-mini" to a dated
+# snapshot. Rates below are illustrative only — verify against current
+# vendor pricing before relying on them.
+pricing:
+  gpt-4o-mini-2024-07-18:
+    prompt_price_per_million: 0.15
+    completion_price_per_million: 0.60
+  claude-opus-4-20250514:
+    prompt_price_per_million: 15.00
+    completion_price_per_million: 75.00
+
+# Routes pin a connection above to one fixed model, under a name of your
+# choosing. Routes live in the same namespace as provider names, so they
+# can be used anywhere a provider name is used — profile fallback lists,
+# and the request-level `provider` field.
+routes:
+  anthropic-opus:
+    provider: anthropic
+    model: claude-opus-4-20250514
+  anthropic-sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+  # Azure has no bare "model" concept on the wire — a request addresses a
+  # deployment name (assigned in your Azure resource), not a model string.
+  # A route's `model:` fills that role directly, so the deployment id never
+  # needs to be sent by the client.
+  azure-gpt4o:
+    provider: azure
+    model: my-gpt4o-deployment
+  openai-gpt4o-mini:
+    provider: openai
+    model: gpt-4o-mini
+
+# Each profile is a tenant: its own keys, its own IP allowlist (omit or
+# leave empty to allow any IP), and its own provider fallback order. A
+# profile's fallback list also doubles as its allowlist: a request can pin
+# to a specific entry via `"provider": "..."` in the request body, but only
+# if that entry is already present in the profile's own fallback list. If
+# that entry errors, the gateway falls through to the rest of the chain.
+#
+# A fallback list spanning more than one vendor may only name routes, never
+# a bare provider — a bare provider forwards the client's `model` field
+# upstream unchanged, which isn't safe once other vendors are in the same
+# chain (their model catalogs differ). `desktop` below is single-vendor, so
+# its bare `openai` entry is fine; `partner-a` spans anthropic/azure/openai,
+# so every one of its entries must be a route instead. Checked at startup —
+# config::load rejects a mixed-vendor profile with any bare provider entry.
+profiles:
+  - name: desktop
+    api_keys:
+      - gw_your_key_here
+    allowed_ips:
+      - 127.0.0.1
+    routing:
+      fallback:
+        - openai
+  - name: partner-a
+    api_keys:
+      - gw_partner_a_key_here
+    routing:
+      fallback:
+        - anthropic-opus
+        - anthropic-sonnet
+        - azure-gpt4o
+        - openai-gpt4o-mini
+    # Opt-in per-profile request cap (token bucket: capacity == the rate
+    # below, refilling continuously). Omit for unlimited — `desktop` above
+    # has none.
+    rate_limit:
+      requests_per_minute: 60
+    # Opt-in per-profile spend cap, checked against persisted request
+    # history before each chat completion (needs a `pricing:` entry for a
+    # model to actually accrue cost — see above). Either/both of these may
+    # be set; omit the whole block for unlimited, same as rate_limit.
+    cost_limit:
+      daily_usd: 5.00
+      monthly_usd: 100.00

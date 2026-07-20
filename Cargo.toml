@@ -31,5 +31,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # async trait support
 async-trait = "0.1"
 
+# streaming
+futures = "0.3"
+async-stream = "0.3"
+bytes = "1"
+
+# request IDs
+uuid = { version = "1", features = ["v4"] }
+
 # .env file loading
 dotenvy = "0.15"
+
+# metrics (rendered via our own /metrics route, not the crate's built-in
+# HTTP/push-gateway server, so those features are disabled)
+metrics = "0.24.6"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+
+# SQLite persistence for request history (default features disabled so the
+# unused Postgres/MySQL drivers aren't pulled in)
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }

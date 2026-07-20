@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde_json::json;
 use thiserror::Error;
 
@@ -17,6 +17,15 @@ pub enum GatewayError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Rate limit exceeded: {0}")]
+    RateLimited(String),
+
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Cost limit exceeded: {0}")]
+    CostLimitExceeded(String),
 }
 
 impl IntoResponse for GatewayError {
@@ -26,6 +35,11 @@ impl IntoResponse for GatewayError {
             GatewayError::Provider(_) => StatusCode::BAD_GATEWAY,
             GatewayError::Auth(_) => StatusCode::UNAUTHORIZED,
             GatewayError::NotFound(_) => StatusCode::NOT_FOUND,
+            GatewayError::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
+            GatewayError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            // Matches OpenAI's real API (429 on insufficient_quota), not
+            // 402 — keeps client SDKs' existing 429 retry/backoff working.
+            GatewayError::CostLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
         };
 
         let body = Json(json!({

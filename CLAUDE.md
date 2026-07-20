@@ -63,13 +63,16 @@ Every provider must implement a single trait:
 trait AiProvider {
     async fn chat(&self, req: UnifiedRequest) -> Result<UnifiedResponse>;
     async fn embeddings(&self, req: UnifiedRequest) -> Result<UnifiedResponse>;
-    async fn models(&self) -> Result<Vec<Model>>;
 }
 ```
 
+`GET /v1/models` does not query upstream vendor catalogs — it lists the
+provider/route names the caller's profile can reach (its own
+`routing.fallback`, resolved against configured providers/routes).
+
 ### Authentication layers
 
-1. **Gateway auth** — client sends `Authorization: Bearer gw_xxx`; gateway validates key, rate limits, permissions.
+1. **Gateway auth** — client sends `Authorization: Bearer gw_xxx`; the key resolves to a **profile** (a tenant), which carries its own IP allowlist and its own provider fallback order. Different clients can hold keys for different profiles and get different routing/limits.
 2. **Provider auth** — gateway-managed keys from config (`OPENAI_API_KEY`, etc.) or BYOK via `X-OpenAI-Key` header.
 
 ### Planned module layout (`src/`)
@@ -81,6 +84,8 @@ handlers/     Axum route handlers (chat, embeddings, models)
 middleware/   Tower middleware (auth, rate limit, logging, metrics)
 providers/    One file per provider + mod.rs with the trait
 routing/      Model-name → provider mapping, failover chain
+health/       Reactive circuit breaker (HealthTracker) backing routing's
+              healthy-first ordering
 cache/        Redis cache layer
 metrics/      Prometheus counters/histograms
 models/       Shared request/response types (UnifiedRequest, etc.)
@@ -95,6 +100,8 @@ utils/        Helpers
 POST /v1/chat/completions
 POST /v1/embeddings
 GET  /v1/models
+GET  /v1/usage
+GET  /metrics
 ```
 
 ### Configuration shape (YAML)
@@ -104,31 +111,63 @@ server:
   host: 127.0.0.1
   port: 8080
 
-security:
-  api_keys: [desktop]
-  allowed_ips: [127.0.0.1]
-
 providers:
   openai:
     enabled: true
     api_key: ${OPENAI_API_KEY}
   anthropic:
-    enabled: false
+    enabled: true
+    api_key: ${ANTHROPIC_API_KEY}
   ollama:
     enabled: true
     base_url: http://localhost:11434
 
-routing:
-  fallback: [openai, anthropic, ollama]
+# Named shortcuts pinning a connection to a fixed model. Live in the same
+# namespace as bare provider names — usable anywhere a provider name is
+# (fallback lists, the request-level `provider` field).
+routes:
+  anthropic-opus:
+    provider: anthropic
+    model: claude-opus-4-20250514
+
+# Same-provider retry (connection errors/429/5xx) before a candidate counts
+# as failed for cross-provider failover. Both optional, shown at defaults.
+retry:
+  max_attempts: 2
+
+# Circuit breaker: after `failure_threshold` consecutive failures a provider
+# is deprioritized (tried last) for `cooldown_secs`. Both optional, shown at
+# defaults. Status surfaced on `GET /v1/models` as `"healthy": true/false`.
+health:
+  failure_threshold: 3
+  cooldown_secs: 30
+
+# Each profile is a tenant: its own keys, its own IP allowlist (omit/empty
+# = allow any IP), and its own provider fallback order — which also doubles
+# as its allowlist for the request-level `provider` pin. Provider instances
+# above are shared/global — a profile picks which of them it can reach.
+profiles:
+  - name: desktop
+    api_keys: [gw_desktop_key]
+    allowed_ips: [127.0.0.1]
+    routing:
+      fallback: [openai, anthropic, ollama]
+  - name: partner-a
+    api_keys: [gw_partner_a_key]
+    routing:
+      fallback: [anthropic, openai]
+    # Opt-in per-profile cap (token bucket; omit for unlimited).
+    rate_limit:
+      requests_per_minute: 60
 ```
 
 ## Development Roadmap
 
 | Phase | Focus |
 |---|---|
-| 1 | MVP: OpenAI-compatible endpoint, OpenAI provider only, config, API keys |
-| 1.5 | Abstraction proof: add Ollama provider to validate `AiProvider` trait generalizes before adding more providers |
-| 2 | Reliability: retry, timeout, logging, streaming, health checks |
-| 3 | Production: SQLite, metrics, dashboard, rate limiting, cost tracking |
-| 4 | Scale: Redis cache, more providers (Claude, Gemini, Azure) |
+| 1 | MVP: OpenAI-compatible endpoint, OpenAI provider only, config, API keys — done |
+| 1.5 | Abstraction proof — done with Anthropic instead of Ollama (hosted API, no local server to run) |
+| 2 | Reliability: retry, timeout, logging, streaming, health checks — done |
+| 3 | Production: SQLite, metrics, rate limiting, cost tracking, cost limiting — done |
+| 4 | Scale: more providers (Claude — done Phase 1.5, Azure — done, Gemini) |
 | 5 | Observability: Prometheus, Grafana, OpenTelemetry, distributed tracing |
