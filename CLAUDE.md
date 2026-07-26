@@ -62,7 +62,6 @@ Every provider must implement a single trait:
 ```rust
 trait AiProvider {
     async fn chat(&self, req: UnifiedRequest) -> Result<UnifiedResponse>;
-    async fn embeddings(&self, req: UnifiedRequest) -> Result<UnifiedResponse>;
 }
 ```
 
@@ -73,7 +72,7 @@ provider/route names the caller's profile can reach (its own
 ### Authentication layers
 
 1. **Gateway auth** — client sends `Authorization: Bearer gw_xxx`; the key resolves to a **profile** (a tenant), which carries its own IP allowlist and its own provider fallback order. Different clients can hold keys for different profiles and get different routing/limits.
-2. **Provider auth** — gateway-managed keys from config (`OPENAI_API_KEY`, etc.) or BYOK via `X-OpenAI-Key` header.
+2. **Provider auth** — gateway-managed keys from config (`OPENAI_API_KEY`, etc.). No per-request BYOK header yet.
 
 ### Planned module layout (`src/`)
 
@@ -98,7 +97,6 @@ utils/        Helpers
 
 ```
 POST /v1/chat/completions
-POST /v1/embeddings
 GET  /v1/models
 GET  /v1/usage
 GET  /metrics

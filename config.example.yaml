@@ -13,9 +13,6 @@ providers:
     enabled: false
     api_key: ${ANTHROPIC_API_KEY}
     timeout_secs: 30
-  ollama:
-    enabled: false
-    base_url: http://localhost:11434
   azure:
     enabled: false
     api_key: ${AZURE_OPENAI_API_KEY}

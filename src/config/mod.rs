@@ -78,7 +78,6 @@ pub struct CostLimitConfig {
 pub struct ProvidersConfig {
     pub openai: Option<OpenAiConfig>,
     pub anthropic: Option<AnthropicConfig>,
-    pub ollama: Option<OllamaConfig>,
     pub azure: Option<AzureConfig>,
 }
 
@@ -100,12 +99,6 @@ pub struct AnthropicConfig {
     pub base_url: String,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct OllamaConfig {
-    pub enabled: bool,
-    pub base_url: String,
 }
 
 // `base_url` is the Azure resource endpoint (e.g.
