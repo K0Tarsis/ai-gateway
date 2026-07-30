@@ -116,17 +116,24 @@ providers:
   anthropic:
     enabled: true
     api_key: ${ANTHROPIC_API_KEY}
-  ollama:
-    enabled: true
-    base_url: http://localhost:11434
 
 # Named shortcuts pinning a connection to a fixed model. Live in the same
 # namespace as bare provider names — usable anywhere a provider name is
 # (fallback lists, the request-level `provider` field).
+#
+# A fallback list may name a bare provider (e.g. `openai`) only when every
+# entry in that list resolves to the same vendor -- a bare provider forwards
+# the client's `model` field upstream unchanged, which is unsafe once the
+# chain spans more than one vendor's model catalog. A mixed-vendor chain
+# must name only routes, bare providers included; config loading rejects
+# a mixed-vendor chain that still contains a bare provider.
 routes:
   anthropic-opus:
     provider: anthropic
     model: claude-opus-4-20250514
+  openai-gpt4o-mini:
+    provider: openai
+    model: gpt-4o-mini
 
 # Same-provider retry (connection errors/429/5xx) before a candidate counts
 # as failed for cross-provider failover. Both optional, shown at defaults.
@@ -149,11 +156,11 @@ profiles:
     api_keys: [gw_desktop_key]
     allowed_ips: [127.0.0.1]
     routing:
-      fallback: [openai, anthropic, ollama]
+      fallback: [openai]
   - name: partner-a
     api_keys: [gw_partner_a_key]
     routing:
-      fallback: [anthropic, openai]
+      fallback: [anthropic-opus, openai-gpt4o-mini]
     # Opt-in per-profile cap (token bucket; omit for unlimited).
     rate_limit:
       requests_per_minute: 60

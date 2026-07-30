@@ -197,7 +197,12 @@ routes:
   azure-gpt4o:
     provider: azure
     model: my-gpt4o-deployment   # your deployment name in Azure, not a bare model id
+  openai-gpt4o-mini:
+    provider: openai
+    model: gpt-4o-mini-2024-07-18
 ```
+
+A `fallback` list may only name a bare provider (e.g. `openai`) when every entry in that list resolves to the same vendor — a bare provider forwards the client's `model` field upstream unchanged, which is only safe if every candidate shares one vendor's model catalog. As soon as a fallback chain spans more than one vendor, **every** entry must be a route, bare providers included; config loading rejects a mixed-vendor chain that still contains a bare provider.
 
 ### `profiles`
 
@@ -221,7 +226,7 @@ profiles:
       fallback:
         - anthropic-opus
         - azure-gpt4o
-        - openai
+        - openai-gpt4o-mini
     rate_limit:                    # optional; omit for unlimited
       requests_per_minute: 60
     cost_limit:                    # optional; omit for unlimited
